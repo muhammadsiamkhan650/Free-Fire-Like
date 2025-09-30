@@ -128,12 +128,12 @@ class LikeCommands(commands.Cog):
                 print(url)
                 async with self.session.get(url) as response:
                     if response.status == 404:
-                        await self._send_player_not_found(ctx, uid)
+                        await self._send_player_not_found(ctx, uid, is_slash)
                         return
 
                     if response.status != 200:
                         print(f"API Error: {response.status} - {await response.text()}")
-                        await self._send_api_error(ctx)
+                        await self._send_api_error(ctx, is_slash)
                         return
 
                     data = await response.json()
@@ -196,16 +196,16 @@ class LikeCommands(commands.Cog):
 
                         await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash, delete_after=5)
 
-                        # delete user's command (only if prefix)
-                        if hasattr(ctx, "message"):
+                        # delete user's command (prefix only)
+                        if not is_slash and hasattr(ctx, "message") and ctx.message:
                             try:
                                 await ctx.message.delete(delay=5)
-                            except:
-                                pass
+                            except Exception as e:
+                                print(f"Failed to delete user message: {e}")
 
         except asyncio.TimeoutError:
             await self._send_error_embed(
-                ctx, "Timeout", "The server took too long to respond.", ephemeral=is_slash
+                ctx, "Timeout", "The server took too long to respond.", is_slash=is_slash
             )
         except Exception as e:
             print(f"Unexpected error in like_command: {e}")
@@ -213,10 +213,10 @@ class LikeCommands(commands.Cog):
                 ctx,
                 "Critical Error",
                 "An unexpected error occurred. Please try again later.",
-                ephemeral=is_slash,
+                is_slash=is_slash,
             )
 
-    async def _send_player_not_found(self, ctx, uid):
+    async def _send_player_not_found(self, ctx, uid, is_slash):
         embed = discord.Embed(
             title="Player Not Found",
             description=f"The UID {uid} does not exist or is not accessible.",
@@ -229,13 +229,13 @@ class LikeCommands(commands.Cog):
         )
         await ctx.send(embed=embed, ephemeral=True, delete_after=5)
 
-        if hasattr(ctx, "message"):
+        if not is_slash and hasattr(ctx, "message") and ctx.message:
             try:
                 await ctx.message.delete(delay=5)
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to delete user message: {e}")
 
-    async def _send_api_error(self, ctx):
+    async def _send_api_error(self, ctx, is_slash):
         embed = discord.Embed(
             title="⚠️ Service Unavailable",
             description="The Free Fire API is not responding at the moment.",
@@ -244,13 +244,13 @@ class LikeCommands(commands.Cog):
         embed.add_field(name="Solution", value="Try again in a few minutes.", inline=False)
         await ctx.send(embed=embed, ephemeral=True, delete_after=5)
 
-        if hasattr(ctx, "message"):
+        if not is_slash and hasattr(ctx, "message") and ctx.message:
             try:
                 await ctx.message.delete(delay=5)
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to delete user message: {e}")
 
-    async def _send_error_embed(self, ctx, title, description, ephemeral=True):
+    async def _send_error_embed(self, ctx, title, description, is_slash=True):
         embed = discord.Embed(
             title=f"❌ {title}",
             description=description,
@@ -258,13 +258,13 @@ class LikeCommands(commands.Cog):
             timestamp=datetime.now(),
         )
         embed.set_footer(text="An error occurred.")
-        await ctx.send(embed=embed, ephemeral=ephemeral, delete_after=5)
+        await ctx.send(embed=embed, ephemeral=is_slash, delete_after=5)
 
-        if hasattr(ctx, "message"):
+        if not is_slash and hasattr(ctx, "message") and ctx.message:
             try:
                 await ctx.message.delete(delay=5)
-            except:
-                pass
+            except Exception as e:
+                print(f"Failed to delete user message: {e}")
 
     def cog_unload(self):
         self.bot.loop.create_task(self.session.close())
