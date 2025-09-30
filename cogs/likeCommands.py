@@ -194,11 +194,14 @@ class LikeCommands(commands.Cog):
                             icon_url=ctx.author.display_avatar.url,
                         )
 
-                        msg = await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash, delete_after=5)
-                        try:
-                            await ctx.message.delete(delay=5)
-                        except:
-                            pass
+                        await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash, delete_after=5)
+
+                        # delete user's command (only if prefix)
+                        if hasattr(ctx, "message"):
+                            try:
+                                await ctx.message.delete(delay=5)
+                            except:
+                                pass
 
         except asyncio.TimeoutError:
             await self._send_error_embed(
@@ -224,11 +227,13 @@ class LikeCommands(commands.Cog):
             value="Make sure that:\n- The UID is correct\n- The player is not private",
             inline=False,
         )
-        msg = await ctx.send(embed=embed, ephemeral=True, delete_after=5)
-        try:
-            await ctx.message.delete(delay=5)
-        except:
-            pass
+        await ctx.send(embed=embed, ephemeral=True, delete_after=5)
+
+        if hasattr(ctx, "message"):
+            try:
+                await ctx.message.delete(delay=5)
+            except:
+                pass
 
     async def _send_api_error(self, ctx):
         embed = discord.Embed(
@@ -237,11 +242,13 @@ class LikeCommands(commands.Cog):
             color=0xF39C12,
         )
         embed.add_field(name="Solution", value="Try again in a few minutes.", inline=False)
-        msg = await ctx.send(embed=embed, ephemeral=True, delete_after=5)
-        try:
-            await ctx.message.delete(delay=5)
-        except:
-            pass
+        await ctx.send(embed=embed, ephemeral=True, delete_after=5)
+
+        if hasattr(ctx, "message"):
+            try:
+                await ctx.message.delete(delay=5)
+            except:
+                pass
 
     async def _send_error_embed(self, ctx, title, description, ephemeral=True):
         embed = discord.Embed(
@@ -251,11 +258,13 @@ class LikeCommands(commands.Cog):
             timestamp=datetime.now(),
         )
         embed.set_footer(text="An error occurred.")
-        msg = await ctx.send(embed=embed, ephemeral=ephemeral, delete_after=5)
-        try:
-            await ctx.message.delete(delay=5)
-        except:
-            pass
+        await ctx.send(embed=embed, ephemeral=ephemeral, delete_after=5)
+
+        if hasattr(ctx, "message"):
+            try:
+                await ctx.message.delete(delay=5)
+            except:
+                pass
 
     def cog_unload(self):
         self.bot.loop.create_task(self.session.close())
