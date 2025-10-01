@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 API_URL = os.getenv("API_URL")
 CONFIG_FILE = "like_channels.json"
+DAILY_FILE = "daily_usage.json"
 
 class LikeCommands(commands.Cog):
     def __init__(self, bot):
@@ -19,7 +20,9 @@ class LikeCommands(commands.Cog):
         self.config_data = self.load_config()
         self.cooldowns = {}
         self.session = aiohttp.ClientSession()
+        self.daily_usage = self.load_daily_usage()
 
+    # =================== CONFIG HANDLING ===================
     def load_config(self):
         default_config = {"servers": {}}
         if os.path.exists(CONFIG_FILE):
@@ -42,6 +45,48 @@ class LikeCommands(commands.Cog):
             json.dump(data_to_save, f, indent=4)
         os.replace(temp_file, CONFIG_FILE)
 
+    # =================== DAILY LIMIT HANDLING ===================
+    def load_daily_usage(self):
+        if os.path.exists(DAILY_FILE):
+            try:
+                with open(DAILY_FILE, "r") as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def save_daily_usage(self):
+        with open(DAILY_FILE, "w") as f:
+            json.dump(self.daily_usage, f, indent=4)
+
+    async def check_daily_limit(self, ctx):
+        guild_id = str(ctx.guild.id)
+        premium_role_id = self.config_data["servers"].get(guild_id, {}).get("premium_role")
+
+        # ==== PREMIUM BYPASS ====
+        if premium_role_id and discord.utils.get(ctx.author.roles, id=int(premium_role_id)):
+            return True, None
+
+        user_id = str(ctx.author.id)
+        today = datetime.utcnow().date().isoformat()
+
+        if user_id not in self.daily_usage:
+            self.daily_usage[user_id] = {"last_reset": today, "used": 0}
+
+        # Reset if new day
+        if self.daily_usage[user_id]["last_reset"] != today:
+            self.daily_usage[user_id] = {"last_reset": today, "used": 0}
+
+        # Normal limit = 1
+        limit = 1
+        if self.daily_usage[user_id]["used"] >= limit:
+            return False, limit
+
+        self.daily_usage[user_id]["used"] += 1
+        self.save_daily_usage()
+        return True, None
+
+    # =================== CHANNEL CHECK ===================
     async def check_channel(self, ctx):
         if ctx.guild is None:
             return True
@@ -52,6 +97,7 @@ class LikeCommands(commands.Cog):
     async def cog_load(self):
         pass
 
+    # =================== ADMIN COMMANDS ===================
     @commands.hybrid_command(
         name="setlikechannel", description="Sets the channels where the /like command is allowed."
     )
@@ -72,17 +118,29 @@ class LikeCommands(commands.Cog):
             like_channels.remove(channel_id_str)
             self.save_config()
             await ctx.send(
-                f"✅ Channel {channel.mention} has been **removed** from allowed channels for /like commands. The command is now **disallowed** there.",
+                f"✅ Channel {channel.mention} has been **removed** from allowed channels for /like commands.",
                 ephemeral=True,
             )
         else:
             like_channels.append(channel_id_str)
             self.save_config()
             await ctx.send(
-                f"✅ Channel {channel.mention} is now **allowed** for /like commands. The command will **only** work in specified channels if any are set.",
+                f"✅ Channel {channel.mention} is now **allowed** for /like commands.",
                 ephemeral=True,
             )
 
+    @commands.hybrid_command(
+        name="setpremiumrole", description="Set the premium role for unlimited like access."
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_premium_role(self, ctx: commands.Context, role: discord.Role):
+        guild_id = str(ctx.guild.id)
+        server_config = self.config_data["servers"].setdefault(guild_id, {})
+        server_config["premium_role"] = str(role.id)
+        self.save_config()
+        await ctx.send(f"✅ Premium role set to {role.mention}.", ephemeral=True)
+
+    # =================== MAIN LIKE COMMAND ===================
     @commands.hybrid_command(name="like", description="Sends likes to a Free Fire player")
     @app_commands.describe(uid="Player UID (numbers only, minimum 6 characters)")
     async def like_command(self, ctx: commands.Context, server: str = None, uid: str = None):
@@ -97,6 +155,15 @@ class LikeCommands(commands.Cog):
                 await ctx.response.send_message(msg, ephemeral=True)
             else:
                 await ctx.reply(msg, mention_author=False)
+            return
+
+        # Daily Limit Check
+        allowed, limit = await self.check_daily_limit(ctx)
+        if not allowed:
+            await ctx.send(
+                f"❌ You already used your **{limit} like(s)** today.\nCome back tomorrow or get Premium role for unlimited access!",
+                ephemeral=True,
+            )
             return
 
         # Cooldown
@@ -179,8 +246,6 @@ class LikeCommands(commands.Cog):
                         )
                         embed.description += "\n🔗 JOIN : https://discord.gg/dHkkwvCkWt"
 
-                        await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash)
-
                     # === FAILED CASE ===
                     else:
                         embed = discord.Embed(
@@ -194,14 +259,7 @@ class LikeCommands(commands.Cog):
                             icon_url=ctx.author.display_avatar.url,
                         )
 
-                        await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash, delete_after=5)
-
-                        # delete user's command (only if prefix)
-                        if hasattr(ctx, "message"):
-                            try:
-                                await ctx.message.delete(delay=5)
-                            except:
-                                pass
+                    await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash)
 
         except asyncio.TimeoutError:
             await self._send_error_embed(
@@ -216,6 +274,7 @@ class LikeCommands(commands.Cog):
                 ephemeral=is_slash,
             )
 
+    # =================== ERROR HANDLING ===================
     async def _send_player_not_found(self, ctx, uid):
         embed = discord.Embed(
             title="Player Not Found",
@@ -227,13 +286,7 @@ class LikeCommands(commands.Cog):
             value="Make sure that:\n- The UID is correct\n- The player is not private",
             inline=False,
         )
-        await ctx.send(embed=embed, ephemeral=True, delete_after=5)
-
-        if hasattr(ctx, "message"):
-            try:
-                await ctx.message.delete(delay=5)
-            except:
-                pass
+        await ctx.send(embed=embed, ephemeral=True)
 
     async def _send_api_error(self, ctx):
         embed = discord.Embed(
@@ -242,13 +295,7 @@ class LikeCommands(commands.Cog):
             color=0xF39C12,
         )
         embed.add_field(name="Solution", value="Try again in a few minutes.", inline=False)
-        await ctx.send(embed=embed, ephemeral=True, delete_after=5)
-
-        if hasattr(ctx, "message"):
-            try:
-                await ctx.message.delete(delay=5)
-            except:
-                pass
+        await ctx.send(embed=embed, ephemeral=True)
 
     async def _send_error_embed(self, ctx, title, description, ephemeral=True):
         embed = discord.Embed(
@@ -258,13 +305,7 @@ class LikeCommands(commands.Cog):
             timestamp=datetime.now(),
         )
         embed.set_footer(text="An error occurred.")
-        await ctx.send(embed=embed, ephemeral=ephemeral, delete_after=5)
-
-        if hasattr(ctx, "message"):
-            try:
-                await ctx.message.delete(delay=5)
-            except:
-                pass
+        await ctx.send(embed=embed, ephemeral=ephemeral)
 
     def cog_unload(self):
         self.bot.loop.create_task(self.session.close())
