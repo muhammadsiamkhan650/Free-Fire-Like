@@ -22,6 +22,14 @@ class LikeCommands(commands.Cog):
         self.session = aiohttp.ClientSession()
         self.daily_usage = self.load_daily_usage()
 
+    # =================== HELPER ===================
+    async def send_temp(self, ctx, content=None, embed=None, ephemeral=False, delay=5):
+        """Send a temporary message that deletes itself after delay seconds"""
+        try:
+            return await ctx.send(content=content, embed=embed, ephemeral=ephemeral, delete_after=delay)
+        except Exception as e:
+            print(f"[send_temp error] {e}")
+
     # =================== CONFIG HANDLING ===================
     def load_config(self):
         default_config = {"servers": {}}
@@ -105,8 +113,7 @@ class LikeCommands(commands.Cog):
     @app_commands.describe(channel="The channel to allow/disallow the /like command in.")
     async def set_like_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         if ctx.guild is None:
-            await ctx.send("This command can only be used in a server.", ephemeral=True)
-            return
+            return await self.send_temp(ctx, "This command can only be used in a server.")
 
         guild_id = str(ctx.guild.id)
         server_config = self.config_data["servers"].setdefault(guild_id, {})
@@ -117,17 +124,11 @@ class LikeCommands(commands.Cog):
         if channel_id_str in like_channels:
             like_channels.remove(channel_id_str)
             self.save_config()
-            await ctx.send(
-                f"✅ Channel {channel.mention} has been **removed** from allowed channels for /like commands.",
-                ephemeral=True,
-            )
+            await self.send_temp(ctx, f"✅ Channel {channel.mention} has been **removed**.")
         else:
             like_channels.append(channel_id_str)
             self.save_config()
-            await ctx.send(
-                f"✅ Channel {channel.mention} is now **allowed** for /like commands.",
-                ephemeral=True,
-            )
+            await self.send_temp(ctx, f"✅ Channel {channel.mention} is now **allowed**.")
 
     @commands.hybrid_command(
         name="setpremiumrole", description="Set the premium role for unlimited like access."
@@ -138,7 +139,7 @@ class LikeCommands(commands.Cog):
         server_config = self.config_data["servers"].setdefault(guild_id, {})
         server_config["premium_role"] = str(role.id)
         self.save_config()
-        await ctx.send(f"✅ Premium role set to {role.mention}.", ephemeral=True)
+        await self.send_temp(ctx, f"✅ Premium role set to {role.mention}.")
 
     # =================== MAIN LIKE COMMAND ===================
     @commands.hybrid_command(name="like", description="Sends likes to a Free Fire player")
@@ -147,24 +148,19 @@ class LikeCommands(commands.Cog):
         is_slash = ctx.interaction is not None
 
         if uid is None or server is None:
-            return await ctx.send("⚠️ UID and server are required.", delete_after=10)
+            return await self.send_temp(ctx, "⚠️ UID and server are required.")
 
         if not await self.check_channel(ctx):
             msg = "This command is not available in this channel. Please use it in an authorized channel."
-            if is_slash:
-                await ctx.response.send_message(msg, ephemeral=True)
-            else:
-                await ctx.reply(msg, mention_author=False)
-            return
+            return await self.send_temp(ctx, msg)
 
         # Daily Limit Check
         allowed, limit = await self.check_daily_limit(ctx)
         if not allowed:
-            await ctx.send(
-                f"❌ You already used your **{limit} like(s)** today.\nCome back tomorrow or get Premium role for unlimited access!",
-                ephemeral=True,
+            return await self.send_temp(
+                ctx,
+                f"❌ You already used your **{limit} like(s)** today.\nCome back tomorrow or get Premium role for unlimited access!"
             )
-            return
 
         # Cooldown
         user_id = ctx.author.id
@@ -173,21 +169,12 @@ class LikeCommands(commands.Cog):
             last_used = self.cooldowns[user_id]
             remaining = cooldown - (datetime.now() - last_used).seconds
             if remaining > 0:
-                await ctx.send(
-                    f"Please wait {remaining} seconds before using this command again.",
-                    ephemeral=is_slash,
-                )
-                return
+                return await self.send_temp(ctx, f"Please wait {remaining} seconds before using this command again.")
         self.cooldowns[user_id] = datetime.now()
 
         # UID Validation
         if not uid.isdigit() or len(uid) < 6:
-            await ctx.reply(
-                "Invalid UID. It must contain only numbers and be at least 6 characters long.",
-                mention_author=False,
-                ephemeral=is_slash,
-            )
-            return
+            return await self.send_temp(ctx, "❌ Invalid UID. Must be at least 6 digits and numbers only.")
 
         try:
             async with ctx.typing():
@@ -195,13 +182,11 @@ class LikeCommands(commands.Cog):
                 print(url)
                 async with self.session.get(url) as response:
                     if response.status == 404:
-                        await self._send_player_not_found(ctx, uid)
-                        return
+                        return await self._send_player_not_found(ctx, uid)
 
                     if response.status != 200:
                         print(f"API Error: {response.status} - {await response.text()}")
-                        await self._send_api_error(ctx)
-                        return
+                        return await self._send_api_error(ctx)
 
                     data = await response.json()
 
@@ -241,10 +226,10 @@ class LikeCommands(commands.Cog):
                         )
 
                         embed.set_image(url="https://imgur.com/mXr0UDF.gif")
-                        embed.set_footer(
-                            text="🔰Developer: ! 1n Only Leo"
-                        )
+                        embed.set_footer(text="🔰Developer: ! 1n Only Leo")
                         embed.description += "\n🔗 JOIN : https://discord.gg/dHkkwvCkWt"
+
+                        await ctx.send(embed=embed)
 
                     # === FAILED CASE ===
                     else:
@@ -254,25 +239,14 @@ class LikeCommands(commands.Cog):
                             color=0xE74C3C,
                             timestamp=datetime.now(),
                         )
-                        embed.set_footer(
-                            text=f"🔰 Requested by {ctx.author}",
-                            icon_url=ctx.author.display_avatar.url,
-                        )
-
-                    await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash)
+                        embed.set_footer(text=f"🔰 Requested by {ctx.author}", icon_url=ctx.author.display_avatar.url)
+                        await self.send_temp(ctx, embed=embed)
 
         except asyncio.TimeoutError:
-            await self._send_error_embed(
-                ctx, "Timeout", "The server took too long to respond.", ephemeral=is_slash
-            )
+            await self._send_error_embed(ctx, "Timeout", "The server took too long to respond.")
         except Exception as e:
             print(f"Unexpected error in like_command: {e}")
-            await self._send_error_embed(
-                ctx,
-                "Critical Error",
-                "An unexpected error occurred. Please try again later.",
-                ephemeral=is_slash,
-            )
+            await self._send_error_embed(ctx, "Critical Error", "An unexpected error occurred. Please try again later.")
 
     # =================== ERROR HANDLING ===================
     async def _send_player_not_found(self, ctx, uid):
@@ -286,7 +260,7 @@ class LikeCommands(commands.Cog):
             value="Make sure that:\n- The UID is correct\n- The player is not private",
             inline=False,
         )
-        await ctx.send(embed=embed, ephemeral=True)
+        await self.send_temp(ctx, embed=embed)
 
     async def _send_api_error(self, ctx):
         embed = discord.Embed(
@@ -295,9 +269,9 @@ class LikeCommands(commands.Cog):
             color=0xF39C12,
         )
         embed.add_field(name="Solution", value="Try again in a few minutes.", inline=False)
-        await ctx.send(embed=embed, ephemeral=True)
+        await self.send_temp(ctx, embed=embed)
 
-    async def _send_error_embed(self, ctx, title, description, ephemeral=True):
+    async def _send_error_embed(self, ctx, title, description, ephemeral=False):
         embed = discord.Embed(
             title=f"❌ {title}",
             description=description,
@@ -305,7 +279,7 @@ class LikeCommands(commands.Cog):
             timestamp=datetime.now(),
         )
         embed.set_footer(text="An error occurred.")
-        await ctx.send(embed=embed, ephemeral=ephemeral)
+        await self.send_temp(ctx, embed=embed)
 
     def cog_unload(self):
         self.bot.loop.create_task(self.session.close())
