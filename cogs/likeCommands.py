@@ -157,10 +157,18 @@ class LikeCommands(commands.Cog):
         # Daily Limit Check
         allowed, limit = await self.check_daily_limit(ctx)
         if not allowed:
-            return await self.send_temp(
-                ctx,
-                f"❌ You already used your **{limit} like(s)** today.\nCome back tomorrow or get Premium role for unlimited access!"
+            embed = discord.Embed(
+                title="🚫 Daily Limit Reached!",
+                description=(
+                    f"❌ You already used your **{limit} like(s)** today.\n\n"
+                    f"✨ Upgrade to **Premium** role and enjoy **Unlimited Likes** 🚀"
+                ),
+                color=discord.Color.gold(),  # Premium golden color
+                timestamp=datetime.now()
             )
+            embed.set_footer(text="⏳ Limit resets every midnight (UTC)")
+            embed.set_thumbnail(url="https://cdn-icons-png.flaticon.com/512/3135/3135715.png")  # VIP Icon
+            return await self.send_temp(ctx, embed=embed, delay=5) 
 
         # Cooldown
         user_id = ctx.author.id
